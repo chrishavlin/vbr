@@ -1,4 +1,4 @@
-# v1.1.3
+# v1.1.1
 
 ## New Features
 * updates to xfit_premelt: 
@@ -10,3 +10,9 @@
 
 ## Bug fix
 * fix for undefined behavior of pre-melt scaling at Tn == 1.0
+=======
+Minor bug fix release 
+
+## bug fixes
+
+- fix for zenodo sync
