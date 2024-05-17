@@ -5,7 +5,9 @@ function result = basic_bayes_mc_profile()
     vbr_init
 
     model_settings.MCMC_max_steps = 100000;
-
+    model_settings.progress_plots = 1;
+    model_settings.MCMC_active_z_memory = 10000;
+    model_settings.output_every_n = 500;
     model_settings.nz = 20;
     model_settings.zLAB = 100;
     model_settings.zmax = 200;
@@ -54,10 +56,22 @@ function result = basic_bayes_mc_profile()
     [Vs_pred, Q_pred] = get_model_predictions(model, model_settings);
     model.Vs_pred = Vs_pred;
     model.Q_pred = Q_pred;
+    model_settings.active_iz = 1;
     model_stats = get_model_stats(Vs_noisy, Vs_std, Q_noisy, Q_std, model, model_settings);
 
     p_trend = zeros(model_settings.MCMC_max_steps,1);
+    p_active = zeros(model_settings.MCMC_active_z_memory, 1);
+    i_active = 1;
+    n_active = 0;
     i_save = 1;
+    if model_settings.progress_plots == 1
+        f = figure();
+        subplot(5,1,1)
+        plot(model_settings.init_conds.z, Vs_noisy,'k')
+        subplot(5,1,2)
+        semilogy(model_settings.init_conds.z, Q_noisy,'k')
+    end
+
     for i = 1:model_settings.MCMC_max_steps
 
         % perturb and predict
@@ -76,20 +90,44 @@ function result = basic_bayes_mc_profile()
             model_stats = model_1_stats;
             p_save = p_1_total;
         else
-            frac = rand(1);
-            if frac < p_1_total / p_total
-                model = model_1;
-                model_stats = model_1_stats;
-                p_save = p_1_total;
-            else
-                p_save = p_total;
+%            frac = rand(1);
+%            if frac < p_1_total / p_total
+%                model = model_1;
+%                model_stats = model_1_stats;
+%                p_save = p_1_total;
+%            else
+%                p_save = p_total;
+%            end
+            p_save = p_total;
+        end
+
+        % store current (will overwrite eventually)
+        p_active(i_active) = p_save;
+        i_active = i_active + 1;
+        if i_active > model_settings.MCMC_active_z_memory
+            i_active = 1 ;
+            n_active = n_active +1;
+        end
+        pdiff = mean(abs(p_save-p_active))/mean(p_save);
+%        disp([i_active, p_save, pdiff])
+
+        if pdiff < 1e-10 && n_active > 0
+            disp("move it!")
+            update_plots(model_settings,model)
+            % move to next iz
+            if model_settings.active_iz < model_settings.nz
+                model_settings.active_iz = model_settings.active_iz + 1;
+                p_active(:) = 100000;
             end
         end
 
-        if rem(i, 100) == 0
+        if rem(i, model_settings.output_every_n) == 0
             disp(['step ', num2str(i), ': ', num2str(p_save)])
             p_trend(i_save) = p_save;
             i_save = i_save + 1;
+            if model_settings.progress_plots == 1
+                update_plots(model_settings, model)
+            end
         end
 
 
@@ -106,6 +144,27 @@ function result = basic_bayes_mc_profile()
     result.z = model_settings.init_conds.z;
     result.model = model;
     result.p_trend = p_trend;
+end
+
+function update_plots(model_settings,model)
+    active_iz = model_settings.active_iz;
+    subplot(5,1,1)
+    hold all
+    plot(model_settings.init_conds.z, model.Vs_pred)
+    plot(model_settings.init_conds.z(active_iz), model.Vs_pred(active_iz),'.')
+    subplot(5,1,2)
+    hold all
+    semilogy(model_settings.init_conds.z, model.Q_pred)
+    subplot(5,1,3)
+    hold all
+    plot(model_settings.init_conds.z, model.T_K)
+    subplot(5,1,4)
+    hold all
+    plot(model_settings.init_conds.z, model.phi)
+    subplot(5,1,5)
+    hold all
+    semilogy(model_settings.init_conds.z, model.dg_um/1e6)
+    pause(0.01)
 end
 
 function model_settings = calculate_invariant_values(model_settings);
@@ -276,8 +335,12 @@ function model_stats = get_model_stats(Vs_obs, Vs_std, Q_obs, Q_std, model, mode
     posterior = zeros(zsize);
 
     total_posterior = 0;
-
-    for iz = 1:numel(p_T)
+    if model_settings.active_iz > 0
+        upper_zi = model_settings.active_iz;
+    else
+        upper_zi = numel(p_T);
+    end
+    for iz = upper_zi:upper_zi
 
         Tmin = model_settings.priors.T_min_K_z(iz);
         Tmax = model_settings.priors.T_max_K_z(iz);
@@ -308,11 +371,16 @@ function model_stats = get_model_stats(Vs_obs, Vs_std, Q_obs, Q_std, model, mode
         Q_std_i = Q_std(iz);
 
         prob_type = 'likelihood from residuals';
-        Q_likeli = probability_distributions(prob_type, Q_obs_i, Q_std_i, Q_pred);
+%        disp([Q_obs_i, Q_std_i, Q_pred])
+        Q_likeli = probability_distributions(prob_type, log10(Q_obs_i), log10(Q_std_i), log10(Q_pred));
+%        disp('likeli')
+%        disp([Q_obs_i, Q_std_i, Q_pred, Q_likeli])
         Vs_likeli = probability_distributions(prob_type, Vs_obs_i, Vs_std_i, Vs_pred);
+%        disp([Vs_obs_i, Vs_std_i, Vs_pred, Vs_likeli])
         likelihood(iz) = Q_likeli * Vs_likeli;
 
         posterior(iz) = likelihood(iz) * joint_prior(iz);
+
         total_posterior = total_posterior + posterior(iz);
     end
 
@@ -331,19 +399,27 @@ function model_1 = perturb_model(model, model_settings);
 
     % randomly select a variable and depth to perturb
     var = randi([1,3]);
-    z_i = randi([1, numel(model.T_K)]);
-
+    if model_settings.active_iz > 0
+        z_i = model_settings.active_iz;
+    else
+        z_i = randi([1, numel(model.T_K)]);
+    end
     model_1.T_K = model.T_K;
     model_1.phi = model.phi;
     model_1.dg_um = model.dg_um;
 
     if var == 1
         model_1.T_K(z_i) = draw_T(model_settings, z_i);
-%        disp([model_1.T(z_i), model.T(z_i)])
+%        disp('change T')
+%        disp([model_1.T_K(z_i), model.T_K(z_i)])
     elseif var == 2
         model_1.phi(z_i) = draw_phi(model_settings);
+%        disp('change phi')
+%        disp([model_1.phi(z_i), model.phi(z_i)])
     else
-        model_1.dg(z_i) = draw_dg(model_settings);
+        model_1.dg_um(z_i) = draw_dg(model_settings);
+%        disp('change dg')
+%        disp([model_1.dg_um(z_i), model.dg_um(z_i)])
     end
 
 end
