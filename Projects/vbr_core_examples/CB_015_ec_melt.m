@@ -1,13 +1,15 @@
-% put the VBRc in the path %
+function CB_015_ec_melt()
+    % put the VBRc in the path %
 clear
 path_to_top_level_vbr='../../';
 addpath(path_to_top_level_vbr)
 vbr_init
 
-ni2011_CB
-gail2008_CB
-sifre2014_CB
-sifre2014_CB2
+%ni2011_CB()
+%gail2008_CB()
+%sifre2014_CB()
+sifre2014_CB2()
+end
 
 function ni2011_CB
 clear
@@ -140,7 +142,7 @@ for id =1:numel(Cco2)
     VBR.in.SV.Cco2 = Cco2(id); % ppm, bulk CO2 
     VBR.in.SV.Ch2o = Ch2o(id); % ppm, bulk H2O
 
-    VBR = ec_vol2part(VBR,'sifre2014','on');
+    VBR = ec_vol2part(VBR,'sifre2014','vol');
     
     % add to electric methods list
     VBR.in.electric.methods_list={'jones2012_ol','SEO3_ol','sifre2014_melt'};
@@ -151,23 +153,27 @@ for id =1:numel(Cco2)
     % Mixing Model, Hashin-Shtrikman 
     VBR = ec_HS1962(VBR,VBR.out.electric.jones2012_ol.esig,VBR.out.electric.sifre2014_melt.esig);
 
-    % plot subplots
+%    % plot subplots
     subplot(3,1,id)
     [x, y] = meshgrid(VBR.in.SV.phi, VBR.in.SV.T_K);
     xlim([0.01 10])
-    shading interp
+%    shading interp
     hold on
-    colormap("hsv")
-    [lines, hand] = contourf(x*100,y-273,log10(VBR.out.electric.HS.esig_up),'k', 'ShowText','on');
-    cb = colorbar();
-    cb.Label.String = 'log(Sigma) (S/m)';
-    cb.Label.FontWeight = "bold";
+%    colormap("hsv")
+disp(max(log10(VBR.out.electric.HS.esig_up(:))))
+disp(min(log10(VBR.out.electric.HS.esig_up(:))))
+    contourf(x*100,y-273,log10(VBR.out.electric.HS.esig_up),50)%, ...
+                             %'TextList', [-2.5:0.5:0.5]);%, 'ShowText','on');
+    caxis([-3, 0.8])
+    cb = colorbar('title', 'log(Sigma) (S/m)');
+%%    cb.Label.String = 'log(Sigma) (S/m)';
+%%    cb.Label.FontWeight = "bold";
     ylabel('Temperature (C)')
     xlabel('Melt Percent (vol %)')
     xticks([0.01 0.02 0.05 0.1 0.2 0.5 1 2 5 10])
-    hand.LevelStep = 0.1;
-    hand.TextList = [-2.5:0.5:0.5];
-    title('Bulk H_{2}O = ' + string(Ch2o(id)) + ' ppm,  Bulk CO_{2} = ' + string(Cco2(id)) + ' ppm')
+%%    hand.LevelStep = 0.1;
+%%    hand.TextList = [-2.5:0.5:0.5];
+%%    title('Bulk H_{2}O = ' + string(Ch2o(id)) + ' ppm,  Bulk CO_{2} = ' + string(Cco2(id)) + ' ppm')
     set(gca,"Xscale",'log')
 
 end
